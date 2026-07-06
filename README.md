@@ -47,8 +47,9 @@ Phase 1 deliverables include:
 
 - `docs/ARCHITECTURE.md` – runtime architecture and goals
 - `docs/CONTRIBUTING_GUIDE.md` – contribution principles
-- `docs/IMPLEMENTATION_PLAN.md` – phased roadmap and acceptance criteria
+- `docs/IMPLEMENTATION_PLAN.md` - phased roadmap and acceptance criteria
 - `docs/OKFmin.SPEC.md` – distilled OKF v0.1 specification
+- `docs/USAGE.md` - implemented functionality and command examples
 
 ## Contributing
 
