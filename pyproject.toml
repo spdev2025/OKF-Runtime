@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "okf-runtime"
+version = "0.1.0"
+description = "Lightweight deterministic runtime for Open Knowledge Format repositories."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "OKF Runtime contributors"}]
+dependencies = []
+
+[project.scripts]
+okf = "okf_runtime.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["okf_runtime*"]
