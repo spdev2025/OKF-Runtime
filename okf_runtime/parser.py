@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from .models import Document, Link, MarkdownFile
+from .models import ActorEvent, Document, Link, MarkdownFile, Source, TrustSignals
 
 FRONTMATTER_BOUNDARY = "---"
 LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
@@ -30,6 +30,7 @@ def parse_document(file: MarkdownFile, root: str | Path) -> Document:
         is_reserved=file.is_reserved,
         metadata=metadata,
         body=body,
+        trust=extract_trust_signals(metadata),
         links=links,
         anchors=anchors,
         errors=errors,
@@ -38,6 +39,61 @@ def parse_document(file: MarkdownFile, root: str | Path) -> Document:
 
 def parse_documents(files: list[MarkdownFile], root: str | Path) -> dict[str, Document]:
     return {item.concept_id: parse_document(item, root) for item in files}
+
+
+def extract_trust_signals(metadata: dict[str, Any]) -> TrustSignals:
+    """Normalize optional v0.2 trust frontmatter into a stable value object."""
+
+    def event(value: Any) -> ActorEvent | None:
+        if not isinstance(value, dict) or not value.get("by"):
+            return None
+        at = value.get("at")
+        return ActorEvent(by=str(value["by"]), at=str(at) if at is not None else None)
+
+    generated = event(metadata.get("generated"))
+    if generated is None and metadata.get("timestamp") is not None:
+        generated = ActorEvent(by="process:legacy", at=str(metadata["timestamp"]))
+    verified_raw = metadata.get("verified", [])
+    if isinstance(verified_raw, dict):
+        verified_raw = [verified_raw]
+    verified = [item for value in verified_raw if (item := event(value))] if isinstance(verified_raw, list) else []
+
+    window = metadata.get("usage_window")
+    usage_window = {str(key): str(value) for key, value in window.items()} if isinstance(window, dict) else None
+    sources: list[Source] = []
+    sources_raw = metadata.get("sources", [])
+    if isinstance(sources_raw, dict):
+        sources_raw = [sources_raw]
+    if isinstance(sources_raw, list):
+        for value in sources_raw:
+            if not isinstance(value, dict) or not value.get("resource"):
+                continue
+            source_window = value.get("usage_window")
+            sources.append(
+                Source(
+                    resource=str(value["resource"]),
+                    id=_optional_string(value.get("id")),
+                    title=_optional_string(value.get("title")),
+                    author=_optional_string(value.get("author")),
+                    usage_count=value.get("usage_count") if isinstance(value.get("usage_count"), int) else None,
+                    last_modified=_optional_string(value.get("last_modified")),
+                    usage_window={str(key): str(item) for key, item in source_window.items()}
+                    if isinstance(source_window, dict)
+                    else None,
+                )
+            )
+    return TrustSignals(
+        generated=generated,
+        verified=verified,
+        status=str(metadata.get("status", "stable")),
+        stale_after=_optional_string(metadata.get("stale_after")),
+        sources=sources,
+        usage_window=usage_window,
+    )
+
+
+def _optional_string(value: Any) -> str | None:
+    return str(value) if value is not None else None
 
 
 def split_frontmatter(text: str, allow_missing: bool = False) -> tuple[dict[str, Any], str, list[str]]:
@@ -67,47 +123,139 @@ def split_frontmatter(text: str, allow_missing: bool = False) -> tuple[dict[str,
 def parse_frontmatter(text: str) -> tuple[dict[str, Any], list[str]]:
     """Parse the small YAML subset used by OKF frontmatter.
 
-    Supports scalar keys and inline lists. This keeps Phase 1 dependency-free
-    while accepting the frontmatter shape in the OKF minimal spec.
+    Supports scalars, inline collections, indented mappings, and block lists.
+    This deliberately remains a small, dependency-free YAML subset rather
+    than a general YAML implementation.
     """
 
-    metadata: dict[str, Any] = {}
     errors: list[str] = []
-    current_key: str | None = None
-    current_list: list[str] | None = None
+    lines = [
+        (number, len(raw_line) - len(raw_line.lstrip(" ")), raw_line.strip())
+        for number, raw_line in enumerate(text.splitlines(), start=1)
+        if raw_line.strip() and not raw_line.lstrip().startswith("#")
+    ]
+    if not lines:
+        return {}, errors
+    if lines[0][1] != 0:
+        errors.append(f"Invalid frontmatter line {lines[0][0]}: unexpected indentation")
+        return {}, errors
 
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
-        line = raw_line.rstrip()
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+    value, next_index = _parse_frontmatter_block(lines, 0, 0, errors)
+    while next_index < len(lines):
+        line_number, _, _ = lines[next_index]
+        errors.append(f"Invalid frontmatter line {line_number}: unexpected indentation")
+        next_index += 1
+    return value if isinstance(value, dict) else {}, errors
+
+
+def _parse_frontmatter_block(
+    lines: list[tuple[int, int, str]], index: int, indent: int, errors: list[str]
+) -> tuple[Any, int]:
+    """Parse one same-indentation mapping or list block."""
+
+    is_list = lines[index][2].startswith("- ") or lines[index][2] == "-"
+    result: list[Any] | dict[str, Any] = [] if is_list else {}
+
+    while index < len(lines):
+        line_number, line_indent, content = lines[index]
+        if line_indent < indent:
+            break
+        if line_indent > indent:
+            break
+
+        if is_list:
+            if not (content.startswith("- ") or content == "-"):
+                break
+            item = content[1:].strip()
+            index += 1
+            if not item:
+                if index < len(lines) and lines[index][1] > indent:
+                    child_indent = lines[index][1]
+                    value, index = _parse_frontmatter_block(lines, index, child_indent, errors)
+                else:
+                    value = None
+                result.append(value)
+                continue
+
+            # A flow mapping is a complete list item, not the ``key: value``
+            # shorthand used by block list mappings.
+            if item.startswith("{") and item.endswith("}"):
+                result.append(_parse_value(item))
+                continue
+
+            key_value = _split_mapping_item(item)
+            if key_value is None:
+                result.append(_parse_value(item))
+                continue
+
+            key, raw_value = key_value
+            mapping: dict[str, Any] = {}
+            if raw_value:
+                mapping[key] = _parse_value(raw_value)
+            elif index < len(lines) and lines[index][1] > indent:
+                child_indent = lines[index][1]
+                mapping[key], index = _parse_frontmatter_block(lines, index, child_indent, errors)
+            else:
+                mapping[key] = []
+            if index < len(lines) and lines[index][1] > indent:
+                child_indent = lines[index][1]
+                sibling_values, index = _parse_frontmatter_block(lines, index, child_indent, errors)
+                if isinstance(sibling_values, dict):
+                    mapping.update(sibling_values)
+                else:
+                    errors.append(f"Invalid frontmatter line {line_number}: list mapping has list-valued siblings")
+            result.append(mapping)
             continue
 
-        if current_key and stripped.startswith("- "):
-            assert current_list is not None
-            current_list.append(_parse_scalar(stripped[2:].strip()))
-            continue
-
-        current_key = None
-        current_list = None
-        if ":" not in line:
+        if content.startswith("- ") or content == "-":
+            break
+        key_value = _split_mapping_item(content)
+        if key_value is None:
             errors.append(f"Invalid frontmatter line {line_number}: expected key: value")
+            index += 1
             continue
-
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
+        key, raw_value = key_value
         if not key:
             errors.append(f"Invalid frontmatter line {line_number}: empty key")
+            index += 1
             continue
-
-        if value == "":
-            current_key = key
-            current_list = []
-            metadata[key] = current_list
+        index += 1
+        if raw_value:
+            value = _parse_value(raw_value)
+            # YAML permits plain scalars to continue on subsequent indented
+            # lines.  Fold them so generated v0.2 bundle descriptions remain
+            # usable without implementing YAML's full block-scalar grammar.
+            if index < len(lines) and lines[index][1] > indent and not isinstance(value, (dict, list)):
+                continuation: list[str] = []
+                while index < len(lines) and lines[index][1] > indent:
+                    continuation.append(lines[index][2])
+                    index += 1
+                result[key] = " ".join([str(value), *continuation])
+            else:
+                result[key] = value
+        elif index < len(lines) and (
+            lines[index][1] > indent or lines[index][2].startswith("- ") or lines[index][2] == "-"
+        ):
+            # YAML also allows an "indentless" block sequence directly
+            # beneath a mapping key (``sources:\n- id: ...``).
+            child_indent = lines[index][1]
+            result[key], index = _parse_frontmatter_block(lines, index, child_indent, errors)
         else:
-            metadata[key] = _parse_value(value)
+            result[key] = []
 
-    return metadata, errors
+    return result, index
+
+
+def _split_mapping_item(value: str) -> tuple[str, str] | None:
+    """Split a YAML ``key: value`` pair, ignoring colons inside quotes."""
+
+    quote: str | None = None
+    for index, char in enumerate(value):
+        if char in {"'", '"'}:
+            quote = None if quote == char else char if quote is None else quote
+        elif char == ":" and quote is None:
+            return value[:index].strip(), value[index + 1 :].strip()
+    return None
 
 
 def _parse_value(value: str) -> Any:
@@ -115,7 +263,19 @@ def _parse_value(value: str) -> Any:
         inner = value[1:-1].strip()
         if not inner:
             return []
-        return [_parse_scalar(part.strip()) for part in _split_inline_list(inner)]
+        return [_parse_value(part.strip()) for part in _split_inline_list(inner)]
+    if value.startswith("{") and value.endswith("}"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return {}
+        mapping: dict[str, Any] = {}
+        for part in _split_inline_list(inner):
+            key_value = _split_mapping_item(part.strip())
+            if key_value is None:
+                return _parse_scalar(value)
+            key, item_value = key_value
+            mapping[key] = _parse_value(item_value)
+        return mapping
     return _parse_scalar(value)
 
 

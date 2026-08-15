@@ -48,6 +48,7 @@ def rebuild_cache(root: Path, cache_dir: Path | None = None) -> RuntimeIndex:
     metadata_index = metadata_module.build_metadata_index(documents)
     tag_index = metadata_module.build_tag_index(metadata_index)
     type_index = metadata_module.build_type_index(metadata_index)
+    trust_index, trust_tier_index = metadata_module.build_trust_index(documents)
     forward = build_forward_links(documents)
     reverse = build_reverse_links(forward)
     source_mtime = max((item.mtime for item in files), default=0.0)
@@ -59,6 +60,9 @@ def rebuild_cache(root: Path, cache_dir: Path | None = None) -> RuntimeIndex:
                 "metadata_index": metadata_index,
                 "tag_index": tag_index,
                 "type_index": type_index,
+                "trust_index": trust_index,
+                "trust_tier_index": trust_tier_index,
+                "okf_version": detect_okf_version(documents),
             },
             indent=2,
             sort_keys=True,
@@ -80,6 +84,9 @@ def rebuild_cache(root: Path, cache_dir: Path | None = None) -> RuntimeIndex:
         metadata_index=metadata_index,
         tag_index=tag_index,
         type_index=type_index,
+        trust_index=trust_index,
+        trust_tier_index=trust_tier_index,
+        okf_version=detect_okf_version(documents),
         stale_rebuilt=True,
     )
 
@@ -93,6 +100,7 @@ def load_cache(root: Path, stale_rebuilt: bool) -> RuntimeIndex:
         item["concept_id"]: document_from_json(root, item)
         for item in metadata_payload.get("documents", [])
     }
+    trust_index, trust_tier_index = metadata_module.build_trust_index(documents)
     return RuntimeIndex(
         root=root,
         documents=documents,
@@ -101,6 +109,9 @@ def load_cache(root: Path, stale_rebuilt: bool) -> RuntimeIndex:
         metadata_index=metadata_payload.get("metadata_index", {}),
         tag_index=metadata_payload.get("tag_index", {}),
         type_index=metadata_payload.get("type_index", {}),
+        trust_index=metadata_payload.get("trust_index", trust_index),
+        trust_tier_index=metadata_payload.get("trust_tier_index", trust_tier_index),
+        okf_version=metadata_payload.get("okf_version", detect_okf_version(documents)),
         stale_rebuilt=stale_rebuilt,
     )
 
@@ -112,6 +123,7 @@ def document_to_json(document: Document) -> dict[str, Any]:
         "reserved": document.is_reserved,
         "metadata": document.metadata,
         "body": document.body,
+        "trust": document.trust.to_dict(),
         "links": [
             {
                 "text": link.text,
@@ -148,7 +160,18 @@ def document_from_json(root: Path, payload: dict[str, Any]) -> Document:
         is_reserved=bool(payload.get("reserved")),
         metadata=payload.get("metadata", {}),
         body=payload.get("body", ""),
+        trust=parser.extract_trust_signals(payload.get("metadata", {})),
         links=links,
         anchors=payload.get("anchors", []),
         errors=payload.get("errors", []),
     )
+
+
+def detect_okf_version(documents: dict[str, Document]) -> str | None:
+    """Return the optional version declaration from the bundle-root index."""
+
+    root_index = documents.get("index")
+    if root_index is None:
+        return None
+    value = root_index.metadata.get("okf_version")
+    return str(value) if value is not None else None

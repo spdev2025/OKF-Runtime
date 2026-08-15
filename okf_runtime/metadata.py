@@ -38,16 +38,34 @@ def build_type_index(metadata_index: dict[str, dict[str, Any]]) -> dict[str, lis
     return {key: sorted(value) for key, value in sorted(index.items())}
 
 
+def build_trust_index(documents: dict[str, Document]) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
+    trust_index = {
+        concept_id: document.trust.to_dict()
+        for concept_id, document in sorted(documents.items())
+        if not document.is_reserved
+    }
+    tier_index: dict[str, list[str]] = {}
+    for concept_id, trust in trust_index.items():
+        tier_index.setdefault(str(trust["trust_tier"]), []).append(concept_id)
+    return trust_index, {tier: sorted(ids) for tier, ids in sorted(tier_index.items())}
+
+
 def query_metadata(metadata_index: dict[str, dict[str, Any]], filters: dict[str, str]) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     for record in metadata_index.values():
-        metadata = record["metadata"]
-        if all(_matches(metadata, key, value) for key, value in filters.items()):
+        if all(_matches(record, key, value) for key, value in filters.items()):
             matches.append(record)
     return sorted(matches, key=lambda item: str(item["id"]))
 
 
-def _matches(metadata: dict[str, Any], key: str, expected: str) -> bool:
+def _matches(record: dict[str, Any], key: str, expected: str) -> bool:
+    if key in {"trust_tier", "status"}:
+        return str(record.get(key)) == expected
+    if key == "stale":
+        if expected.lower() not in {"true", "false"}:
+            return False
+        return bool(record.get("is_stale")) == (expected.lower() == "true")
+    metadata = record["metadata"]
     value = metadata.get(key)
     if isinstance(value, list):
         return expected in {str(item) for item in value}

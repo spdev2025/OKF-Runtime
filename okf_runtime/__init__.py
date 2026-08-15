@@ -10,6 +10,7 @@ from .api import (
     links,
     query,
     show,
+    trust,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "links",
     "query",
     "show",
+    "trust",
 ]

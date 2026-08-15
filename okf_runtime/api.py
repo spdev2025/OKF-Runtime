@@ -17,7 +17,10 @@ def discover(root: str | Path = ".") -> list[dict[str, object]]:
 
 def catalog(root: str | Path = ".", include_links: bool = False) -> list[dict[str, Any]]:
     index = cache.load_or_rebuild(root)
-    records = list(index.metadata_index.values())
+    records = [
+        {**record, **({"okf_version": index.okf_version} if index.okf_version is not None else {})}
+        for record in index.metadata_index.values()
+    ]
     if include_links:
         for record in records:
             concept_id = str(record["id"])
@@ -65,9 +68,37 @@ def graph(root: str | Path, concept_id: str, depth: int = 1) -> dict[str, Any]:
     return neighborhood(normalized, index.forward_links, index.reverse_links, depth=depth)
 
 
-def compose(root: str | Path, topic: str, output_dir: str | Path | None = None, depth: int = 1) -> dict[str, Any]:
+def compose(
+    root: str | Path,
+    topic: str,
+    output_dir: str | Path | None = None,
+    depth: int = 1,
+    min_trust: str | None = None,
+) -> dict[str, Any]:
     index = cache.load_or_rebuild(root)
-    return compose_bundle(index, topic, output_dir=output_dir, depth=depth)
+    return compose_bundle(index, topic, output_dir=output_dir, depth=depth, min_trust=min_trust)
+
+
+def trust(root: str | Path = ".", concept_id: str | None = None) -> dict[str, Any]:
+    index = cache.load_or_rebuild(root)
+    if concept_id is not None:
+        normalized = concept_id.removesuffix(".md")
+        document = index.documents.get(normalized)
+        if document is None or document.is_reserved:
+            raise KeyError(f"Unknown concept: {concept_id}")
+        return {"id": normalized, **document.trust.to_dict()}
+    statuses: dict[str, int] = {}
+    stale_count = 0
+    for trust_data in index.trust_index.values():
+        statuses[str(trust_data["status"])] = statuses.get(str(trust_data["status"]), 0) + 1
+        stale_count += bool(trust_data["is_stale"])
+    return {
+        "okf_version": index.okf_version,
+        "concept_count": len(index.trust_index),
+        "trust_tiers": {tier: len(ids) for tier, ids in index.trust_tier_index.items()},
+        "status": dict(sorted(statuses.items())),
+        "stale_count": stale_count,
+    }
 
 
 def lint_links(root: str | Path = ".") -> list[dict[str, Any]]:

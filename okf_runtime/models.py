@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,59 @@ class Link:
     resolved_path: str | None = None
 
 
+@dataclass(frozen=True)
+class ActorEvent:
+    """A generation or verification event recorded in frontmatter."""
+
+    by: str
+    at: str | None = None
+
+
+@dataclass(frozen=True)
+class Source:
+    """An attributed source and its optional credibility signals."""
+
+    resource: str
+    id: str | None = None
+    title: str | None = None
+    author: str | None = None
+    usage_count: int | None = None
+    last_modified: str | None = None
+    usage_window: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class TrustSignals:
+    """Derived v0.2 provenance, trust, and lifecycle metadata."""
+
+    generated: ActorEvent | None = None
+    verified: list[ActorEvent] = field(default_factory=list)
+    status: str = "stable"
+    stale_after: str | None = None
+    sources: list[Source] = field(default_factory=list)
+    usage_window: dict[str, str] | None = None
+
+    @property
+    def trust_tier(self) -> str:
+        if not self.verified:
+            return "unverified"
+        if any(event.by.startswith("human:") for event in self.verified):
+            return "human-reviewed"
+        return "machine-confirmed"
+
+    @property
+    def is_stale(self) -> bool:
+        if not self.stale_after:
+            return False
+        try:
+            return date.today() >= date.fromisoformat(self.stale_after)
+        except ValueError:
+            return False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**asdict(self), "trust_tier": self.trust_tier, "is_stale": self.is_stale}
+
+
 @dataclass
 class Document:
     """A parsed markdown document."""
@@ -51,6 +105,7 @@ class Document:
     is_reserved: bool
     metadata: dict[str, Any]
     body: str
+    trust: TrustSignals = field(default_factory=TrustSignals)
     links: list[Link] = field(default_factory=list)
     anchors: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -65,12 +120,27 @@ class Document:
         value = self.metadata.get("type")
         return str(value) if value is not None else None
 
+    @property
+    def trust_tier(self) -> str:
+        return self.trust.trust_tier
+
+    @property
+    def is_stale(self) -> bool:
+        return self.trust.is_stale
+
+    @property
+    def status(self) -> str:
+        return self.trust.status
+
     def to_catalog_record(self) -> dict[str, Any]:
         return {
             "id": self.concept_id,
             "path": self.relative_path,
             "reserved": self.is_reserved,
             "metadata": self.metadata,
+            "trust_tier": self.trust_tier,
+            "status": self.status,
+            "is_stale": self.is_stale,
             "errors": self.errors,
         }
 
@@ -86,6 +156,9 @@ class RuntimeIndex:
     metadata_index: dict[str, dict[str, Any]]
     tag_index: dict[str, list[str]]
     type_index: dict[str, list[str]]
+    trust_index: dict[str, dict[str, Any]] = field(default_factory=dict)
+    trust_tier_index: dict[str, list[str]] = field(default_factory=dict)
+    okf_version: str | None = None
     stale_rebuilt: bool = False
 
     def concept_ids(self) -> list[str]:
