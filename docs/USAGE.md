@@ -1,6 +1,6 @@
 # OKF Runtime Usage Guide
 
-This guide describes the Phase 1 functionality implemented in `okf_runtime`.
+This guide describes the implemented Phase 1 and Phase 1.5 functionality in `okf_runtime`.
 
 OKF Runtime is library-first. The CLI is a thin wrapper around `okf_runtime.api`, so CLI commands and Python API calls use the same scanner, parser, cache, metadata index, link index, graph builder, and compose logic.
 
@@ -37,9 +37,12 @@ Most metadata commands return catalog records:
       - questions
       - posts
   errors: []
+  trust_tier: human-reviewed
+  status: stable
+  is_stale: false
 ```
 
-The `metadata` field is the parsed frontmatter. The `errors` field records parse or conformance issues for that document without rejecting the whole bundle.
+The `metadata` field is the parsed frontmatter. `trust_tier`, `status`, and `is_stale` are derived v0.2 fields. The `errors` field records parse or conformance issues without rejecting the whole bundle.
 
 ## Example Query
 
@@ -109,6 +112,13 @@ python -B -m okf_runtime.cli --root localdocs\samples query type="BigQuery Table
 
 Filters are exact `key=value` matches. For list fields such as `tags`, a record matches when the list contains the requested value.
 
+Derived v0.2 filters are also available:
+
+```powershell
+python -B -m okf_runtime.cli --root localdocs\samples query trust_tier=human-reviewed
+python -B -m okf_runtime.cli --root localdocs\samples query status=deprecated stale=true
+```
+
 ### `show`
 
 Return one concept record by concept ID.
@@ -175,6 +185,28 @@ python -B -m okf_runtime.cli --root localdocs\samples compose posts_questions --
 
 Compose copies selected source markdown files unchanged and writes `boundary.json` describing selected files and links that point outside the composed set.
 
+Require a minimum derived trust tier when composing:
+
+```powershell
+python -B -m okf_runtime.cli --root localdocs\samples compose posts_questions --min-trust machine-confirmed
+```
+
+The ordering is `unverified`, `machine-confirmed`, then `human-reviewed`.
+
+### `trust`
+
+Summarize trust tiers, lifecycle status, stale concepts, and the root `index.md` `okf_version` declaration:
+
+```powershell
+python -B -m okf_runtime.cli --root localdocs\samples --format yaml trust
+```
+
+Pass a concept ID to inspect its generated and verified events, sources, credibility signals, status, and staleness:
+
+```powershell
+python -B -m okf_runtime.cli --root localdocs\samples --format yaml trust bundles/acme_retail/metrics/revenue
+```
+
 ### `lint-links`
 
 Report parser issues, broken internal links, broken anchors, and orphan documents.
@@ -190,7 +222,7 @@ This command uses the same cached parsed documents and link indexes as the retri
 The CLI maps directly to the public API:
 
 ```python
-from okf_runtime import catalog, query, show, links, backlinks, graph, compose, lint_links
+from okf_runtime import catalog, query, show, links, backlinks, graph, compose, trust, lint_links
 
 records = query("localdocs/samples", type="BigQuery Table", tags="posts")
 one = show("localdocs/samples", "bundles/stackoverflow/tables/posts_questions")
@@ -205,7 +237,8 @@ Available API functions:
 - `links(root=".", concept_id=None)`
 - `backlinks(root=".", concept_id=None)`
 - `graph(root, concept_id, depth=1)`
-- `compose(root, topic, output_dir=None, depth=1)`
+- `compose(root, topic, output_dir=None, depth=1, min_trust=None)`
+- `trust(root=".", concept_id=None)`
 - `lint_links(root=".")`
 
 ## Cache Behavior
@@ -228,13 +261,15 @@ Implemented:
 
 - Filesystem scanning
 - Markdown document discovery
-- Frontmatter extraction for common OKF scalar/list fields
+- Dependency-free frontmatter extraction for scalars, inline collections, nested mappings, list-of-dicts, and folded scalar continuations
 - Metadata catalog and exact-match query
 - Forward links and backlinks
 - Graph neighborhoods
 - Basic composition with boundary reporting
 - Link, anchor, parser, and orphan linting
 - JSON and YAML-like CLI output
+- v0.2 provenance, trust tier, lifecycle, and `okf_version` support
+- Trust-aware query filters and composition
 
 Not implemented in Phase 1:
 

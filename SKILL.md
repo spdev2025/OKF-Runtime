@@ -14,9 +14,11 @@ metadata:
     - agent-context
 ---
 
-# OKF Runtime Skill
+# OKF Runtime Repository Agent Guide
 
 This skill provides a deterministic runtime and retrieval toolkit for Open Knowledge Format (OKF) repositories. It enables AI agents to query, traverse, and compose OKF document bundles without reading entire markdown files, preserving LLM context and reducing token usage.
+
+This file guides work in this repository. It is not a distributable Agent Skill package because the repository directory does not satisfy the Agent Skills `name`/directory matching rule. Package a distributable skill under `skills/okf-runtime/` if one is needed.
 
 ## Available Command Interface
 
@@ -58,6 +60,8 @@ Filter concepts without loading markdown bodies. Matches are exact `key=value`. 
 python -B -m okf_runtime.cli --root localdocs\samples --format yaml query type="BigQuery Table" tags=posts
 ```
 
+Use the derived v0.2 filters when trust or lifecycle is relevant: `trust_tier=unverified|machine-confirmed|human-reviewed`, `status=draft|stable|deprecated`, and `stale=true|false`.
+
 ### 4. `show`
 Retrieve metadata catalog record for a specific concept by its ID.
 ```powershell
@@ -84,10 +88,18 @@ Generate a temporary sub-bundle composed of relevant files centered on a topic o
 ```powershell
 python -B -m okf_runtime.cli --root localdocs\samples compose posts_questions --output-dir .cache\composed-output --depth 2
 ```
+- **Flag**: `--min-trust unverified|machine-confirmed|human-reviewed` excludes concepts below the requested derived trust tier.
 - Copies matched markdown files into the output directory.
 - Generates `boundary.json` at the root of the composed folder to identify dangling/external links mapping to their original source bundle locations.
 
-### 8. `lint-links`
+### 8. `trust`
+Summarize v0.2 trust tiers, lifecycle status, stale concepts, and detected `okf_version`; pass a concept ID for its complete trust surface.
+```powershell
+python -B -m okf_runtime.cli --root localdocs\samples --format yaml trust
+python -B -m okf_runtime.cli --root localdocs\samples --format yaml trust bundles/acme_retail/metrics/revenue
+```
+
+### 9. `lint-links`
 Check for broken internal links, anchor issues, parser errors, or unreachable orphan documents.
 ```powershell
 python -B -m okf_runtime.cli --root localdocs\samples lint-links
@@ -114,6 +126,6 @@ Before completing work on OKF markdown files:
 
 ## Gotchas & Limitations
 
-- **Multiline Frontmatter:** The Phase 1 YAML frontmatter parser does not support indented multi-line scalars (such as descriptions spanning multiple lines). These will generate parsing errors in the output under `errors`.
+- **Frontmatter subset:** The dependency-free parser supports scalars, inline collections, indented mappings, list-of-dicts, and folded scalar continuations. It is not a complete YAML 1.2 implementation.
 - **Comma-Separated Lists:** YAML tags must be formatted as lists (e.g., `- posts` or `[posts]`). Comma-separated strings (e.g., `tags: legacy, posts`) are parsed as a single string and will not match list queries like `tags=posts`.
 - **Cache Folder:** The tool automatically creates a `.cache/` folder under the root. This directory contains `manifest.json`, `metadata.json`, `links.json`, and `reverse_links.json`. It is safe to delete and will rebuild silently on the next command.

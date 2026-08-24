@@ -55,6 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     compose_parser.add_argument("topic")
     compose_parser.add_argument("--output-dir")
     compose_parser.add_argument("--depth", type=int, default=1)
+    compose_parser.add_argument("--min-trust", choices=["unverified", "machine-confirmed", "human-reviewed"])
+
+    trust_parser = subparsers.add_parser("trust")
+    trust_parser.add_argument("concept_id", nargs="?")
 
     subparsers.add_parser("lint-links")
     return parser
@@ -77,7 +81,9 @@ def run_command(args: argparse.Namespace) -> Any:
     if args.command == "graph":
         return api.graph(args.root, args.concept_id, depth=args.depth)
     if args.command == "compose":
-        return api.compose(args.root, args.topic, output_dir=args.output_dir, depth=args.depth)
+        return api.compose(args.root, args.topic, output_dir=args.output_dir, depth=args.depth, min_trust=args.min_trust)
+    if args.command == "trust":
+        return api.trust(args.root, args.concept_id)
     if args.command == "lint-links":
         return api.lint_links(args.root)
     raise ValueError(f"Unknown command: {args.command}")
@@ -100,6 +106,7 @@ def short_catalog(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "path": record["path"],
             "type": record["metadata"].get("type"),
             "title": record["metadata"].get("title"),
+            **({"okf_version": record["okf_version"]} if "okf_version" in record else {}),
         }
         for record in records
     ]

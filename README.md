@@ -8,6 +8,7 @@ OKF Runtime is a lightweight, deterministic consumption engine for Open Knowledg
 - A deterministic metadata and link graph builder
 - A cache-friendly engine for bundle discovery, link analysis, and composition
 - A thin, JSON-friendly runtime API for downstream tools and agent integrations
+- Provenance, lifecycle, and derived trust signals for OKF v0.2 bundles
 
 ## Why this exists
 
@@ -19,6 +20,7 @@ Most existing OKF tooling focuses on authoring, validation, or enrichment. OKF R
 - build forward and reverse link graphs
 - compose temporary topic bundles without mutating source files
 - validate links, anchors, and graph structure
+- derive trust tiers and staleness from v0.2 frontmatter
 
 ## Core design principles
 
@@ -30,12 +32,13 @@ Most existing OKF tooling focuses on authoring, validation, or enrichment. OKF R
 
 ## Current focus
 
-Phase 1 deliverables include:
+The implemented Phase 1 and 1.5 surface includes:
 
 - filesystem scanner and bundle discovery
 - markdown/YAML parser and metadata extraction
 - cache-based metadata and link indexes
 - graph construction for forward and reverse links
+- v0.2 nested frontmatter, provenance, trust, lifecycle, and `okf_version` support
 - lightweight CLI commands for discovery, catalog, query, graph, compose, and linting
 
 ## Repository structure
@@ -50,6 +53,10 @@ Phase 1 deliverables include:
 - `docs/IMPLEMENTATION_PLAN.md` - phased roadmap and acceptance criteria
 - `docs/OKFmin.SPEC.md` – distilled OKF v0.1 specification
 - `docs/USAGE.md` - implemented functionality and command examples
+
+## Agent Skills packaging
+
+The root `SKILL.md` is a repository-local agent guide. It is not a distributable Agent Skill package because its parent directory is the repository name, not the required lowercase skill name. A conformant distributable skill should live in a directory such as `skills/okf-runtime/`, while the Python package remains at `okf_runtime/`.
 
 ## Contributing
 

@@ -13,10 +13,28 @@ from .links import boundary_links
 from .models import RuntimeIndex
 
 
-def compose_bundle(index: RuntimeIndex, topic: str, output_dir: str | Path | None = None, depth: int = 1) -> dict[str, Any]:
+TRUST_TIER_ORDER = {"unverified": 0, "machine-confirmed": 1, "human-reviewed": 2}
+
+
+def compose_bundle(
+    index: RuntimeIndex,
+    topic: str,
+    output_dir: str | Path | None = None,
+    depth: int = 1,
+    min_trust: str | None = None,
+) -> dict[str, Any]:
     start_id = resolve_topic(index, topic)
     graph = neighborhood(start_id, index.forward_links, index.reverse_links, depth=depth)
     selected_ids = set(graph["nodes"])
+    if min_trust is not None:
+        if min_trust not in TRUST_TIER_ORDER:
+            raise ValueError(f"Invalid minimum trust tier: {min_trust}")
+        threshold = TRUST_TIER_ORDER[min_trust]
+        selected_ids = {
+            concept_id
+            for concept_id in selected_ids
+            if concept_id in index.documents and TRUST_TIER_ORDER[index.documents[concept_id].trust_tier] >= threshold
+        }
 
     if output_dir:
         destination = Path(output_dir).expanduser().resolve()
@@ -41,6 +59,7 @@ def compose_bundle(index: RuntimeIndex, topic: str, output_dir: str | Path | Non
         "start_id": start_id,
         "source_bundle_root": str(index.root),
         "depth": depth,
+        "min_trust": min_trust,
         "files": copied,
         "boundary_links": boundary,
     }
