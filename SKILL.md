@@ -1,24 +1,24 @@
 ---
 name: okf-runtime
-description: Discover, query, catalog, and compose Open Knowledge Format (OKF) bundles. Use this skill when you need to retrieve, filter, lint, or compose sub-bundles of markdown and YAML files without loading whole documents into your context window.
+description: "Discover, catalog, query, traverse, lint, and compose Open Knowledge Format (OKF) markdown bundles. Use when: retrieving OKF concepts, filtering YAML frontmatter, tracing links, checking trust metadata, validating bundles, or creating context-limited sub-bundles."
+version: 0.1.0
+authors:
+  - spomytkin, OKF-Runtime contributors
+tags:
+  - okf
+  - knowledge-catalog
+  - metadata-extraction
+  - link-linting
+  - agent-context
 license: MIT
 compatibility: Requires Python 3.10+
-metadata:
-  version: 0.1.0
-  author: OKF Runtime contributors
-  tags:
-    - okf
-    - knowledge-catalog
-    - metadata-extraction
-    - link-linting
-    - agent-context
 ---
 
 # OKF Runtime Repository Agent Guide
 
 This skill provides a deterministic runtime and retrieval toolkit for Open Knowledge Format (OKF) repositories. It enables AI agents to query, traverse, and compose OKF document bundles without reading entire markdown files, preserving LLM context and reducing token usage.
 
-This file guides work in this repository. It is not a distributable Agent Skill package because the repository directory does not satisfy the Agent Skills `name`/directory matching rule. Package a distributable skill under `skills/okf-runtime/` if one is needed.
+This directory is a conformant Agent Skill package: its `okf-runtime` directory matches the frontmatter `name`. The Python implementation lives in `okf_runtime/`, agent-facing material in `references/`, and maintainer documentation in `docs/`.
 
 ## Available Command Interface
 
@@ -29,6 +29,8 @@ python -B -m okf_runtime.cli --root <bundle-or-scan-root> <command> [options]
 ```
 
 *Note: Always use `-B` to avoid writing Python bytecode (`.pyc` files) to disk in restricted/containerized agent environments.*
+
+The module invocation is the primary no-install path. After installing the package from the skill root (`python -m pip install -e .`), `python scripts/okf.py ...` is an equivalent convenience wrapper.
 
 ### Global Flags
 - `--root <path>`: Directory containing OKF bundles. Defaults to `.`.
@@ -129,3 +131,15 @@ Before completing work on OKF markdown files:
 - **Frontmatter subset:** The dependency-free parser supports scalars, inline collections, indented mappings, list-of-dicts, and folded scalar continuations. It is not a complete YAML 1.2 implementation.
 - **Comma-Separated Lists:** YAML tags must be formatted as lists (e.g., `- posts` or `[posts]`). Comma-separated strings (e.g., `tags: legacy, posts`) are parsed as a single string and will not match list queries like `tags=posts`.
 - **Cache Folder:** The tool automatically creates a `.cache/` folder under the root. This directory contains `manifest.json`, `metadata.json`, `links.json`, and `reverse_links.json`. It is safe to delete and will rebuild silently on the next command.
+
+## References
+
+Load only the material needed for the task:
+
+- `references/USAGE.md` - CLI/API syntax and examples; use for operation questions.
+- `references/OKF-Version-0.2-min.md` - default implementation reference for OKF v0.2.
+- `references/OKFmin.SPEC.md` - legacy OKF v0.1 rules.
+- `references/OKF-DELTA-0.1-to-0.2.md` - migration and compatibility work.
+- `references/OKF-v0.2-SPEC-for-consumer-agent-context.md` - expanded consumer-agent implementation context.
+- `references/OKF-SPEC-Version-0.2.md` - full specification; load only for details absent from distilled references.
+- `references/SKILLminSPEC.md` - Agent Skills packaging and conformance work only.

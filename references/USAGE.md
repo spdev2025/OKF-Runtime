@@ -14,6 +14,8 @@ python -B -m okf_runtime.cli --root <bundle-or-scan-root> <command>
 
 Use `-B` when you want to avoid Python bytecode writes in restricted environments.
 
+After installing from the skill root with `python -m pip install -e .`, the thin wrapper `python scripts/okf.py <command>` delegates to the same CLI. Prefer the module form above when installation is unnecessary.
+
 Global options:
 
 - `--root <path>`: bundle root or scan root. Defaults to the current directory.

@@ -43,20 +43,23 @@ The implemented Phase 1 and 1.5 surface includes:
 
 ## Repository structure
 
-- `docs/` – design, architecture, specification, and contribution guidelines
-- `README.md` – this overview
+- `okf_runtime/` - runtime library and CLI
+- `scripts/` - thin agent-facing entry point
+- `references/` - agent-facing usage and specification material
+- `docs/` - architecture, decisions, contribution guidance, and plans
+- `tests/` - runtime tests and fixtures
 
 ## Documentation
 
 - `docs/ARCHITECTURE.md` – runtime architecture and goals
 - `docs/CONTRIBUTING_GUIDE.md` – contribution principles
 - `docs/IMPLEMENTATION_PLAN.md` - phased roadmap and acceptance criteria
-- `docs/OKFmin.SPEC.md` – distilled OKF v0.1 specification
-- `docs/USAGE.md` - implemented functionality and command examples
+- `references/OKFmin.SPEC.md` – distilled OKF v0.1 specification
+- `references/USAGE.md` - implemented functionality and command examples
 
 ## Agent Skills packaging
 
-The root `SKILL.md` is a repository-local agent guide. It is not a distributable Agent Skill package because its parent directory is the repository name, not the required lowercase skill name. A conformant distributable skill should live in a directory such as `skills/okf-runtime/`, while the Python package remains at `okf_runtime/`.
+This directory is a conformant Agent Skill package: its `okf-runtime` directory matches the frontmatter `name`. The Python implementation lives in `okf_runtime/`, agent-facing material in `references/`, and maintainer documentation in `docs/`.
 
 ## Contributing
 

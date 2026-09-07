@@ -2,7 +2,7 @@
 
 ## Vision
 
-OKF Runtime is a lightweight deterministic retrieval engine for the Open Knowledge Format (OKF) [spec.](OKFmin.SPEC.md).
+OKF Runtime is a lightweight deterministic retrieval engine for the Open Knowledge Format (OKF) [spec.](../references/OKFmin.SPEC.md).
 
 Unlike existing OKF tooling, which primarily focuses on authoring, enrichment, and validation, OKF Runtime focuses on efficient **consumption** of large OKF repositories by AI coding agents.
 
@@ -79,28 +79,27 @@ okf-runtime/
 ├── SKILL.md
 ├── README.md
 ├── LICENSE
+├── pyproject.toml
 │
-├── scripts/                 # Agent-facing entry points only
-│   ├── okf.py               # Main CLI wrapper
-│   ├── validate.py          # Optional convenience wrapper
-│   └── compose.py           # Optional convenience wrapper
+├── okf_runtime/             # Python implementation
 │
-├── runtime/                 # Actual implementation
-│   ├── __init__.py
-│   ├── api.py
-│   ├── scanner.py
-│   ├── parser.py
-│   ├── metadata.py
-│   ├── graph.py
-│   ├── compose.py
-│   ├── cache.py
-│   └── links.py
-│
-├── docs/
-├── examples/
-├── templates/
-├── tests/
-└── pyproject.toml
+├── tests/                   # Runtime tests and fixtures
+├── scripts/
+│   └── okf.py               # Thin agent-facing CLI wrapper
+├── references/              # Agent-facing, on-demand material
+│   ├── USAGE.md
+│   ├── OKFmin.SPEC.md
+│   ├── OKF-Version-0.2-min.md
+│   ├── OKF-SPEC-Version-0.2.md
+│   ├── OKF-v0.2-SPEC-for-consumer-agent-context.md
+│   ├── OKF-DELTA-0.1-to-0.2.md
+│   └── SKILLminSPEC.md
+└── docs/                    # Maintainer-facing documentation
+    ├── ADR.md
+    ├── ARCHITECTURE.md
+    ├── CONTRIBUTING_GUIDE.md
+    ├── IMPLEMENTATION_PLAN.md
+    └── refactor.md
 ```
 
 Business logic must never exist only inside the CLI or MCP layer.
