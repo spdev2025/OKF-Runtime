@@ -2,6 +2,8 @@
 
 OKF Runtime is a lightweight, deterministic consumption engine for Open Knowledge Format (OKF) bundles. It is designed to help agents and tools discover, index, and traverse OKF repositories without requiring a database, daemon, or heavy external dependencies.
 
+![OKF Runtime](docs/OKF-Runtime.png)
+
 ## What it is
 
 - A filesystem-first runtime for OKF markdown bundles
