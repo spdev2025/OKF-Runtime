@@ -1,0 +1,19 @@
+name: evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  offline-evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        run: python3 -B -m unittest discover -s tests -p 'test_*.py'
+      - name: Reference eval suite
+        run: python3 -B -m okf_runtime.evals.cli run --adapter reference --output .evals/results.json

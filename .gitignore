@@ -1,5 +1,7 @@
 localdocs/
 .cache/
 .test-tmp/
+.evals-run/
+.evals/results.json
 __pycache__/
 *.py[cod]
