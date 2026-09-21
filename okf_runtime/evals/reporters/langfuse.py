@@ -9,10 +9,16 @@ from ..redaction import redact_run_result
 from ..schema import EvalRunResult
 
 
-class LangfuseClientProtocol(Protocol):
-    def trace(self, **kwargs: Any) -> Any: ...
+class LangfuseObservation(Protocol):
+    def update(self, **kwargs: Any) -> Any: ...
 
-    def score(self, **kwargs: Any) -> Any: ...
+
+class LangfuseClientProtocol(Protocol):
+    def start_as_current_observation(self, **kwargs: Any) -> Any: ...
+
+    def create_score(self, **kwargs: Any) -> Any: ...
+
+    def get_current_trace_id(self) -> str | None: ...
 
     def flush(self) -> None: ...
 
@@ -35,38 +41,52 @@ class LangfuseReporter:
         client = Langfuse(
             public_key=config.langfuse_public_key,
             secret_key=config.langfuse_secret_key,
-            host=config.langfuse_host,
+            base_url=config.langfuse_host,
         )
         return cls(client, config)
 
     def publish(self, result: EvalRunResult) -> dict[str, Any]:
         if self.client is None:
             return {"enabled": False, "status": "skipped"}
+
         sanitized = redact_run_result(result.to_dict())
         run_name = result.run_name
         try:
             for case in sanitized.get("cases", []):
-                trace = self.client.trace(
+                with self.client.start_as_current_observation(
+                    as_type="span",
                     name=f"okf-eval:{case['case_id']}",
+                    input={"case_id": case["case_id"]},
                     metadata={
                         "run_id": result.run_id,
                         "run_name": run_name,
                         "adapter": result.adapter,
                         "suite": case.get("suite"),
                     },
-                    input={"case_id": case["case_id"]},
-                    output=case.get("subject_response"),
-                )
-                trace_id = getattr(trace, "id", None) or getattr(trace, "trace_id", None)
-                for score in case.get("scores", []):
-                    if not score.get("applicable"):
-                        continue
-                    self.client.score(
-                        trace_id=trace_id,
-                        name=str(score["name"]),
-                        value=float(score["value"]) if score.get("data_type") == "numeric" else score["value"],
-                        comment=str(score.get("comment") or ""),
-                    )
+                ) as observation:
+                    observation.update(output=case.get("subject_response"))
+                    trace_id = self.client.get_current_trace_id()
+                    for score in case.get("scores", []):
+                        if not score.get("applicable"):
+                            continue
+                        data_type = str(score.get("data_type", "")).upper()
+                        value = score["value"]
+                        if data_type == "BOOLEAN":
+                            value = 1.0 if value else 0.0
+                        elif data_type == "NUMERIC":
+                            value = float(value)
+                        self.client.create_score(
+                            trace_id=trace_id,
+                            name=str(score["name"]),
+                            value=value,
+                            data_type=data_type or None,
+                            comment=str(score.get("comment") or ""),
+                            metadata={
+                                "run_id": result.run_id,
+                                "case_id": case["case_id"],
+                                "adapter": result.adapter,
+                            },
+                        )
             self.client.flush()
             return {"enabled": True, "status": "published", "run_name": run_name}
         except Exception as exc:  # noqa: BLE001 - publication must not crash runner
