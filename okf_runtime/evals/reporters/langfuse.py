@@ -52,41 +52,62 @@ class LangfuseReporter:
         sanitized = redact_run_result(result.to_dict())
         run_name = result.run_name
         try:
-            for case in sanitized.get("cases", []):
-                with self.client.start_as_current_observation(
-                    as_type="span",
-                    name=f"okf-eval:{case['case_id']}",
-                    input={"case_id": case["case_id"]},
-                    metadata={
-                        "run_id": result.run_id,
-                        "run_name": run_name,
-                        "adapter": result.adapter,
-                        "suite": case.get("suite"),
-                    },
-                ) as observation:
-                    observation.update(output=case.get("subject_response"))
-                    trace_id = self.client.get_current_trace_id()
-                    for score in case.get("scores", []):
-                        if not score.get("applicable"):
-                            continue
-                        data_type = str(score.get("data_type", "")).upper()
-                        value = score["value"]
-                        if data_type == "BOOLEAN":
-                            value = 1.0 if value else 0.0
-                        elif data_type == "NUMERIC":
-                            value = float(value)
-                        self.client.create_score(
-                            trace_id=trace_id,
-                            name=str(score["name"]),
-                            value=value,
-                            data_type=data_type or None,
-                            comment=str(score.get("comment") or ""),
-                            metadata={
-                                "run_id": result.run_id,
-                                "case_id": case["case_id"],
-                                "adapter": result.adapter,
-                            },
-                        )
+            with self.client.start_as_current_observation(
+                as_type="span",
+                name=f"okf-eval-run:{run_name}",
+                input={"run_id": result.run_id},
+                metadata={
+                    "run_id": result.run_id,
+                    "run_name": run_name,
+                    "adapter": result.adapter,
+                    "case_count": len(sanitized.get("cases", [])),
+                },
+            ) as run_observation:
+                for case in sanitized.get("cases", []):
+                    with self.client.start_as_current_observation(
+                        as_type="span",
+                        name=f"okf-eval:{case['case_id']}",
+                        input={"case_id": case["case_id"]},
+                        metadata={
+                            "run_id": result.run_id,
+                            "run_name": run_name,
+                            "adapter": result.adapter,
+                            "suite": case.get("suite"),
+                        },
+                    ) as observation:
+                        observation.update(output=case.get("subject_response"))
+                        trace_id = self.client.get_current_trace_id()
+                        observation_id = getattr(observation, "id", None)
+                        for score in case.get("scores", []):
+                            if not score.get("applicable"):
+                                continue
+                            data_type = str(score.get("data_type", "")).upper()
+                            value = score["value"]
+                            if data_type == "BOOLEAN":
+                                value = 1.0 if value else 0.0
+                            elif data_type == "NUMERIC":
+                                value = float(value)
+                            score_kwargs = {
+                                "trace_id": trace_id,
+                                "name": str(score["name"]),
+                                "value": value,
+                                "data_type": data_type or None,
+                                "comment": str(score.get("comment") or ""),
+                                "metadata": {
+                                    "run_id": result.run_id,
+                                    "case_id": case["case_id"],
+                                    "adapter": result.adapter,
+                                },
+                            }
+                            if observation_id:
+                                score_kwargs["observation_id"] = observation_id
+                            self.client.create_score(**score_kwargs)
+                run_observation.update(
+                    output={
+                        "gates": sanitized.get("gates"),
+                        "aggregates": sanitized.get("aggregates"),
+                    }
+                )
             self.client.flush()
             return {"enabled": True, "status": "published", "run_name": run_name}
         except Exception as exc:  # noqa: BLE001 - publication must not crash runner
