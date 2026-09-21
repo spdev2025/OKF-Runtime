@@ -14,7 +14,7 @@ dependencies = []
 
 [project.optional-dependencies]
 eval = []
-langfuse = ["langfuse>=3.0.0"]
+langfuse = ["langfuse>=4.0.0"]
 
 [project.scripts]
 okf = "okf_runtime.cli:main"
