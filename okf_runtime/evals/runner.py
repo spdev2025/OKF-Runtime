@@ -282,7 +282,7 @@ def run_and_write(
             result.publication = reporter.publish(result)
         except ValueError as exc:
             result.publication = {"enabled": True, "status": "failed", "error": str(exc)}
-            write_json_result(result, output_path)
     else:
         result.publication = {"enabled": False, "status": "skipped"}
+    write_json_result(result, output_path)
     return result
