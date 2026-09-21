@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import shlex
 import sys
 import time
 import uuid
@@ -10,7 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from .adapters import invoke_callable, invoke_http, invoke_subprocess, run_reference_subject
+from .adapters import (
+    HttpAdapterError,
+    SubprocessAdapterError,
+    invoke_callable,
+    invoke_http,
+    invoke_subprocess,
+    run_reference_subject,
+)
 from .baseline import DEFAULT_GATES, evaluate_gates
 from .cases import EvalCase
 from .config import EvalConfig, load_config
@@ -48,7 +57,7 @@ def _build_subject(adapter: str, adapter_target: str | None) -> SubjectFn:
     if adapter == "subprocess":
         if not adapter_target:
             raise RunnerError("Subprocess adapter requires --command")
-        command = adapter_target.split()
+        command = shlex.split(adapter_target)
         return lambda request: invoke_subprocess(command, request, timeout_seconds=float(request.metadata.get("timeout_seconds", 30)))
     if adapter == "http":
         if not adapter_target:
@@ -59,17 +68,30 @@ def _build_subject(adapter: str, adapter_target: str | None) -> SubjectFn:
 
 
 def _invoke_with_timeout(subject: SubjectFn, request: SubjectRequest, timeout_seconds: float) -> SubjectResponse:
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(subject, request)
-        try:
-            return future.result(timeout=timeout_seconds)
-        except FuturesTimeout:
-            return SubjectResponse(
-                protocol_version=PROTOCOL_VERSION,
-                case_id=request.case_id,
-                status="timeout",
-                error="Subject execution timed out",
-            )
+    pool = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(subject, request)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except FuturesTimeout:
+        future.cancel()
+        return SubjectResponse(
+            protocol_version=PROTOCOL_VERSION,
+            case_id=request.case_id,
+            status="timeout",
+            error="Subject execution timed out",
+        )
+    except Exception as exc:  # noqa: BLE001 - isolate one subject failure to its case
+        message = str(exc) or exc.__class__.__name__
+        status = "timeout" if "timed out" in message.lower() or "timeout" in message.lower() else "error"
+        return SubjectResponse(
+            protocol_version=PROTOCOL_VERSION,
+            case_id=request.case_id,
+            status=status,  # type: ignore[arg-type]
+            error=f"{exc.__class__.__name__}: {message}",
+        )
+    finally:
+        # Do not wait for a timed-out in-process subject.
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _case_request(case: EvalCase, bundle_root: Path) -> SubjectRequest:
@@ -137,9 +159,13 @@ def run_cases(
         after_hash = tree_hash(case_dir, extra_ignore=set(case.metadata.get("ignore_paths") or []))
         source_unchanged = before_hash == after_hash
 
+        response_size = len(json.dumps(response.to_dict(), ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
         if len(response.events) > config.max_events:
             response.status = "invalid"
             response.error = "Event count exceeded configured limit"
+        elif response_size > config.max_response_bytes:
+            response.status = "invalid"
+            response.error = "Response size exceeded configured limit"
 
         scores = score_case(case, response, source_unchanged=source_unchanged, replay_equivalent=replay_equivalent)
         all_scores.append(scores)
