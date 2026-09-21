@@ -147,8 +147,21 @@ def run_cases(
     case_results: list[CaseRunResult] = []
     all_scores: list[list] = []
 
+    repo_root = repo_root.resolve()
     for case in cases:
         fixture_source = (repo_root / case.fixture).resolve()
+        if repo_root not in fixture_source.parents and fixture_source != repo_root:
+            case_results.append(
+                CaseRunResult(
+                    case_id=case.id,
+                    suite=case.suite,
+                    status="error",
+                    scores=[],
+                    latency_ms=0.0,
+                    error_category="fixture_outside_repo",
+                )
+            )
+            continue
         if not fixture_source.exists():
             case_results.append(
                 CaseRunResult(
