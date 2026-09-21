@@ -13,8 +13,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .adapters import (
-    HttpAdapterError,
-    SubprocessAdapterError,
     invoke_callable,
     invoke_http,
     invoke_subprocess,
