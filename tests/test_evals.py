@@ -3,20 +3,48 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
-
 from okf_runtime.evals.adapters.subprocess import SubprocessAdapterError, invoke_subprocess
 from okf_runtime.evals.baseline import compare_results, evaluate_gates, normalize_for_compare
 from okf_runtime.evals.cases import default_cases_path, load_cases, validate_cases
 from okf_runtime.evals.config import EvalConfig
 from okf_runtime.evals.redaction import redact_value
 from okf_runtime.evals.reporters.langfuse import LangfuseReporter
-from okf_runtime.evals.runner import run_cases
+from okf_runtime.evals.runner import _invoke_with_timeout, run_cases
 from okf_runtime.evals.schema import PROTOCOL_VERSION, SubjectRequest, SubjectResponse
 from okf_runtime.evals.scoring import score_case
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+class FakeObservation:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def update(self, **kwargs):
+        self.output = kwargs.get("output")
+
+
+class FakeLangfuseClient:
+    def __init__(self):
+        self.scores = []
+        self.flushed = False
+
+    def start_as_current_observation(self, **kwargs):
+        self.observation_kwargs = kwargs
+        return FakeObservation()
+
+    def get_current_trace_id(self):
+        return "trace-1"
+
+    def create_score(self, **kwargs):
+        self.scores.append(kwargs)
+
+    def flush(self):
+        self.flushed = True
+
 
 
 class EvalSchemaTests(unittest.TestCase):
@@ -69,6 +97,31 @@ class EvalRunnerTests(unittest.TestCase):
         self.assertEqual(by_id[error_case.id].status, "error")
         self.assertEqual(by_id[error_case.id].gate_status, "ok")
 
+    def test_subject_exception_isolated(self) -> None:
+        cases = load_cases(default_cases_path(REPO_ROOT))
+
+        def subject(request):
+            raise RuntimeError("boom")
+
+        response = _invoke_with_timeout(
+            subject,
+            SubjectRequest(PROTOCOL_VERSION, cases[0].id, {}, {}, {}),
+            1,
+        )
+        self.assertEqual(response.status, "error")
+        self.assertIn("boom", response.error or "")
+
+    def test_response_size_limit(self) -> None:
+        cases = load_cases(default_cases_path(REPO_ROOT))
+        result = run_cases(
+            [cases[0]],
+            repo_root=REPO_ROOT,
+            adapter="reference",
+            config=EvalConfig(False, None, None, None, max_response_bytes=1),
+        )
+        self.assertEqual(result.cases[0].status, "invalid")
+        self.assertEqual(result.cases[0].error_category, "invalid")
+
 
 class EvalAdapterTests(unittest.TestCase):
     def test_subprocess_round_trip(self) -> None:
@@ -98,9 +151,7 @@ class EvalAdapterTests(unittest.TestCase):
 
 class EvalLangfuseTests(unittest.TestCase):
     def test_publish_with_fake_client(self) -> None:
-        client = MagicMock()
-        trace = MagicMock(id="trace-1")
-        client.trace.return_value = trace
+        client = FakeLangfuseClient()
         reporter = LangfuseReporter(client, EvalConfig(True, "pk", "sk", "http://localhost"))
         from okf_runtime.evals.schema import CaseRunResult, EvalRunResult, ScoreResult
 
@@ -127,7 +178,8 @@ class EvalLangfuseTests(unittest.TestCase):
         )
         status = reporter.publish(result)
         self.assertEqual(status["status"], "published")
-        client.flush.assert_called_once()
+        self.assertTrue(client.flushed)
+        self.assertEqual(client.scores[0]["trace_id"], "trace-1")
 
 
 class EvalBaselineTests(unittest.TestCase):
