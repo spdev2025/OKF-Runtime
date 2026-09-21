@@ -44,6 +44,10 @@ Implement these boundaries rather than coupling cases to a vendor SDK:
 6. A runner that does not import LangChain, LlamaIndex, OpenAI Agents SDK,
    Anthropic SDK, or any other agent framework.
 
+Ground-truth case plans and expected results are evaluator-only data. Do not
+send them to callable, subprocess, or HTTP subjects. Only the deterministic
+built-in reference adapter may receive a case plan through an internal call.
+
 Framework-specific examples or adapters may be documented separately, but no
 framework package may be required to run the core suite.
 
