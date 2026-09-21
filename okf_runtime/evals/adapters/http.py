@@ -29,6 +29,8 @@ def invoke_http(url: str, request: SubjectRequest, *, timeout_seconds: float) ->
         raise HttpAdapterError(f"HTTP subject error {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         raise HttpAdapterError(f"HTTP subject unreachable: {exc}") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HttpAdapterError(f"Invalid HTTP subject JSON: {exc}") from exc
     try:
         return SubjectResponse.from_dict(payload)
     except ValueError as exc:
