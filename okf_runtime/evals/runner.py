@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import queue
 import shlex
 import sys
+import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -66,19 +67,34 @@ def _build_subject(adapter: str, adapter_target: str | None) -> SubjectFn:
 
 
 def _invoke_with_timeout(subject: SubjectFn, request: SubjectRequest, timeout_seconds: float) -> SubjectResponse:
-    pool = ThreadPoolExecutor(max_workers=1)
-    future = pool.submit(subject, request)
+    result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+    def worker() -> None:
+        try:
+            result_queue.put(("result", subject(request)))
+        except Exception as exc:  # noqa: BLE001 - isolate one subject failure to its case
+            result_queue.put(("error", exc))
+
+    thread = threading.Thread(
+        target=worker,
+        name=f"okf-eval-{request.case_id}",
+        daemon=True,
+    )
+    thread.start()
+
     try:
-        return future.result(timeout=timeout_seconds)
-    except FuturesTimeout:
-        future.cancel()
+        kind, value = result_queue.get(timeout=timeout_seconds)
+    except queue.Empty:
         return SubjectResponse(
             protocol_version=PROTOCOL_VERSION,
             case_id=request.case_id,
             status="timeout",
             error="Subject execution timed out",
         )
-    except Exception as exc:  # noqa: BLE001 - isolate one subject failure to its case
+
+    if kind == "error":
+        exc = value
+        assert isinstance(exc, Exception)
         message = str(exc) or exc.__class__.__name__
         status = "timeout" if "timed out" in message.lower() or "timeout" in message.lower() else "error"
         return SubjectResponse(
@@ -87,9 +103,16 @@ def _invoke_with_timeout(subject: SubjectFn, request: SubjectRequest, timeout_se
             status=status,  # type: ignore[arg-type]
             error=f"{exc.__class__.__name__}: {message}",
         )
-    finally:
-        # Do not wait for a timed-out in-process subject.
-        pool.shutdown(wait=False, cancel_futures=True)
+
+    response = value
+    if not isinstance(response, SubjectResponse):
+        return SubjectResponse(
+            protocol_version=PROTOCOL_VERSION,
+            case_id=request.case_id,
+            status="invalid",
+            error=f"Subject returned unsupported response type: {type(response).__name__}",
+        )
+    return response
 
 
 def _case_request(case: EvalCase, bundle_root: Path) -> SubjectRequest:
@@ -99,7 +122,7 @@ def _case_request(case: EvalCase, bundle_root: Path) -> SubjectRequest:
         case_id=case.id,
         input=dict(case.input),
         context={"bundle_root": str(bundle_root.resolve())},
-        metadata={"timeout_seconds": timeout, "suite": case.suite, "plan": case.plan},
+        metadata={"timeout_seconds": timeout, "suite": case.suite},
     )
 
 
@@ -146,16 +169,15 @@ def run_cases(
         request = _case_request(case, case_dir)
         timeout = float(case.metadata.get("timeout_seconds", 30))
         start = time.perf_counter()
-        response = _invoke_with_timeout(subject, request, timeout)
+        if adapter == "reference":
+            response = _invoke_with_timeout(
+                lambda req: run_reference_subject(req, plan=case.plan),
+                request,
+                timeout,
+            )
+        else:
+            response = _invoke_with_timeout(subject, request, timeout)
         latency_ms = (time.perf_counter() - start) * 1000.0
-
-        replay_equivalent: bool | None = None
-        if case.expect.get("deterministic_replay"):
-            second = _invoke_with_timeout(subject, request, timeout)
-            replay_equivalent = response.to_dict() == second.to_dict()
-
-        after_hash = tree_hash(case_dir, extra_ignore=set(case.metadata.get("ignore_paths") or []))
-        source_unchanged = before_hash == after_hash
 
         response_size = len(json.dumps(response.to_dict(), ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
         if len(response.events) > config.max_events:
@@ -164,6 +186,21 @@ def run_cases(
         elif response_size > config.max_response_bytes:
             response.status = "invalid"
             response.error = "Response size exceeded configured limit"
+
+        replay_equivalent: bool | None = None
+        if case.expect.get("deterministic_replay") and response.status == "ok":
+            if adapter == "reference":
+                second = _invoke_with_timeout(
+                    lambda req: run_reference_subject(req, plan=case.plan),
+                    request,
+                    timeout,
+                )
+            else:
+                second = _invoke_with_timeout(subject, request, timeout)
+            replay_equivalent = response.to_dict() == second.to_dict()
+
+        after_hash = tree_hash(case_dir, extra_ignore=set(case.metadata.get("ignore_paths") or []))
+        source_unchanged = before_hash == after_hash
 
         scores = score_case(case, response, source_unchanged=source_unchanged, replay_equivalent=replay_equivalent)
         all_scores.append(scores)
