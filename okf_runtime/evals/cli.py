@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .baseline import compare_results, load_baseline
 from .cases import default_cases_path, filter_cases, load_cases, validate_cases
-from .runner import run_and_write
+from .runner import RunnerError, run_and_write
 
 
 def _repo_root() -> Path:
@@ -18,7 +18,11 @@ def _repo_root() -> Path:
 
 def cmd_cases_validate(args: argparse.Namespace) -> int:
     path = Path(args.cases) if args.cases else default_cases_path(_repo_root())
-    cases = load_cases(path)
+    try:
+        cases = load_cases(path)
+    except (OSError, ValueError) as exc:
+        print(f"Invalid case data: {exc}", file=sys.stderr)
+        return 2
     errors = validate_cases(cases)
     if errors:
         for error in errors:
@@ -30,7 +34,11 @@ def cmd_cases_validate(args: argparse.Namespace) -> int:
 
 def cmd_cases_list(args: argparse.Namespace) -> int:
     path = Path(args.cases) if args.cases else default_cases_path(_repo_root())
-    cases = filter_cases(load_cases(path), suite=args.suite, tags=set(args.tags or []))
+    try:
+        cases = filter_cases(load_cases(path), suite=args.suite, tags=set(args.tags or []))
+    except (OSError, ValueError) as exc:
+        print(f"Invalid case data: {exc}", file=sys.stderr)
+        return 2
     for case in cases:
         print(f"{case.id}\t{case.suite}\t{case.description}")
     return 0
@@ -38,29 +46,44 @@ def cmd_cases_list(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     path = Path(args.cases) if args.cases else default_cases_path(_repo_root())
-    cases = filter_cases(load_cases(path), suite=args.suite, tags=set(args.tags or []))
+    try:
+        cases = filter_cases(load_cases(path), suite=args.suite, tags=set(args.tags or []))
+    except (OSError, ValueError) as exc:
+        print(f"Invalid case data: {exc}", file=sys.stderr)
+        return 2
     errors = validate_cases(cases)
     if errors:
         for error in errors:
             print(error, file=sys.stderr)
         return 2
     output = Path(args.output)
-    result = run_and_write(
-        cases,
-        repo_root=_repo_root(),
-        output_path=output,
-        adapter=args.adapter,
-        adapter_target=args.target or args.command or args.url,
-        run_name=args.run_name,
-    )
+    try:
+        result = run_and_write(
+            cases,
+            repo_root=_repo_root(),
+            output_path=output,
+            adapter=args.adapter,
+            adapter_target=args.target or args.command or args.url,
+            run_name=args.run_name,
+        )
+    except (RunnerError, ValueError) as exc:
+        print(f"Invalid eval configuration: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - unexpected execution failure
+        print(f"Evaluation execution failed: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps({"run_id": result.run_id, "gates_passed": result.gates.get("passed"), "output": str(output)}, indent=2))
     return 0 if result.gates.get("passed") else 1
 
 
 def cmd_compare(args: argparse.Namespace) -> int:
-    current = json.loads(Path(args.current).read_text(encoding="utf-8"))
-    baseline = load_baseline(Path(args.baseline))
-    comparison = compare_results(current, baseline)
+    try:
+        current = json.loads(Path(args.current).read_text(encoding="utf-8"))
+        baseline = load_baseline(Path(args.baseline))
+        comparison = compare_results(current, baseline)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        print(f"Invalid result or baseline data: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps(comparison, indent=2))
     return 0 if comparison["passed"] else 1
 
