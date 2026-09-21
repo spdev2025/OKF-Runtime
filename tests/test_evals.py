@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest.mock import patch
+from okf_runtime.evals.adapters.http import HttpAdapterError, invoke_http
 from okf_runtime.evals.adapters.subprocess import SubprocessAdapterError, invoke_subprocess
 from okf_runtime.evals.baseline import compare_results, evaluate_gates, normalize_for_compare
 from okf_runtime.evals.cases import default_cases_path, load_cases, validate_cases
+from okf_runtime.evals.cli import main as eval_cli_main
 from okf_runtime.evals.config import EvalConfig
 from okf_runtime.evals.redaction import redact_value
 from okf_runtime.evals.reporters.langfuse import LangfuseReporter
@@ -16,6 +21,20 @@ from okf_runtime.evals.scoring import score_case
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class FakeHTTPResponse:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self.body
 
 class FakeObservation:
     def __enter__(self):
@@ -142,6 +161,46 @@ class EvalAdapterTests(unittest.TestCase):
         command = [sys.executable, "-B", str(REPO_ROOT / "scripts" / "eval_reference_subject.py")]
         response = invoke_subprocess(command, request, timeout_seconds=30)
         self.assertEqual(response.status, "ok")
+
+    def test_http_malformed_json(self) -> None:
+        request = SubjectRequest(
+            protocol_version=PROTOCOL_VERSION,
+            case_id="x",
+            input={"prompt": "x"},
+            context={"bundle_root": str(REPO_ROOT)},
+        )
+        with patch("urllib.request.urlopen", return_value=FakeHTTPResponse(b"not-json")):
+            with self.assertRaises(HttpAdapterError):
+                invoke_http("http://example.invalid", request, timeout_seconds=5)
+
+    def test_http_error_isolated(self) -> None:
+        request = SubjectRequest(
+            protocol_version=PROTOCOL_VERSION,
+            case_id="x",
+            input={"prompt": "x"},
+            context={"bundle_root": str(REPO_ROOT)},
+        )
+        error = urllib.error.HTTPError(
+            "http://example.invalid",
+            500,
+            "server error",
+            {},
+            io.BytesIO(b"bad"),
+        )
+        with patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(HttpAdapterError):
+                invoke_http("http://example.invalid", request, timeout_seconds=5)
+
+    def test_invalid_subject_response_type_is_isolated(self) -> None:
+        cases = load_cases(default_cases_path(REPO_ROOT))
+        response = _invoke_with_timeout(lambda request: {"not": "a SubjectResponse"}, SubjectRequest(
+            PROTOCOL_VERSION, cases[0].id, {}, {}, {}
+        ), 1)
+        self.assertEqual(response.status, "invalid")
+        self.assertIn("unsupported response type", response.error or "")
+
+    def test_run_missing_adapter_target_is_invalid_configuration(self) -> None:
+        self.assertEqual(eval_cli_main(["run", "--adapter", "subprocess"]), 2)
 
     def test_subprocess_malformed_json(self) -> None:
         request = SubjectRequest(
