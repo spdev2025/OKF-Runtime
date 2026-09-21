@@ -7,7 +7,7 @@ Cross-framework evaluation harness for the OKF Runtime Agent Skill. Local JSON r
 ```bash
 python3 -B -m okf_runtime.evals.cli cases validate
 python3 -B -m okf_runtime.evals.cli cases list --suite runtime
-python3 -B -m okf_runtime.evals.cli run --adapter reference --output .evals/results.json
+python -B -m okf_runtime.evals.cli run --adapter reference --output .evals/results.json
 ```
 
 Exit code `0` means gates passed; `1` means a gate failed; `2` means invalid configuration or case data.
@@ -31,6 +31,8 @@ python3 -B -m okf_runtime.evals.cli run \
 ```
 
 Third-party agents should accept the versioned `SubjectRequest` JSON documented in `prompts/evals/CONTEXT.md` and return `SubjectResponse` JSON with tool/evidence events.
+
+Expected operation plans and ground-truth answers are never included in requests to external subjects; they remain evaluator-side data.
 
 ## Baselines
 
@@ -61,7 +63,7 @@ Publication failures are recorded in `publication` on the result file and do not
 ## CI
 
 ```bash
-python3 -B -m unittest discover -s tests -p 'test_*.py'
+python -B -m unittest discover -s tests -p 'test_*.py'
 python3 -B -m okf_runtime.evals.cli run --adapter reference --output .evals/results.json
 ```
 
