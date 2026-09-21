@@ -98,6 +98,12 @@ JSON-serializable, forward-compatible with unknown metadata fields, and capable
 of representing timeouts and partial failures. Define limits for response size,
 event count, and execution time.
 
+The expected operation plan is evaluator-side data. Never place case plans,
+expected answers, or other ground-truth expectations in a request sent to an
+external subject adapter. The built-in reference subject may receive the plan
+through an internal runner-only call because it is a deterministic fixture
+executor, not an agent-under-test.
+
 Required adapters:
 
 | Adapter | Purpose | Portability |
