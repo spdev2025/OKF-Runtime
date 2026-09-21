@@ -24,3 +24,5 @@ jobs:
         run: python -B -m okf_runtime.evals.cli cases validate
       - name: Reference eval suite
         run: python -B -m okf_runtime.evals.cli run --adapter reference --output .evals/results.json
+      - name: Compare reference baseline
+        run: python -B -m okf_runtime.evals.cli compare .evals/results.json --baseline evals/data/baseline.reference.json
