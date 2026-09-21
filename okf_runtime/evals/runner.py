@@ -175,9 +175,11 @@ def run_cases(
             )
             continue
 
+        ignore_paths = set(case.metadata.get("ignore_paths") or [])
+        source_before_hash = tree_hash(fixture_source, extra_ignore=ignore_paths)
         case_dir = work_root / case.id
         copy_fixture(fixture_source, case_dir)
-        before_hash = tree_hash(case_dir, extra_ignore=set(case.metadata.get("ignore_paths") or []))
+        copy_before_hash = tree_hash(case_dir, extra_ignore=ignore_paths)
 
         request = _case_request(case, case_dir)
         timeout = float(case.metadata.get("timeout_seconds", 30))
@@ -212,8 +214,9 @@ def run_cases(
                 second = _invoke_with_timeout(subject, request, timeout)
             replay_equivalent = response.to_dict() == second.to_dict()
 
-        after_hash = tree_hash(case_dir, extra_ignore=set(case.metadata.get("ignore_paths") or []))
-        source_unchanged = before_hash == after_hash
+        copy_after_hash = tree_hash(case_dir, extra_ignore=ignore_paths)
+        source_after_hash = tree_hash(fixture_source, extra_ignore=ignore_paths)
+        source_unchanged = source_before_hash == source_after_hash and copy_before_hash == copy_after_hash
 
         scores = score_case(case, response, source_unchanged=source_unchanged, replay_equivalent=replay_equivalent)
         all_scores.append(scores)
@@ -238,7 +241,12 @@ def run_cases(
                 error_category=error_category,
                 gate_status=gate_status,  # type: ignore[arg-type]
                 subject_response=response.to_dict(),
-                evidence={"source_hash_before": before_hash, "source_hash_after": after_hash},
+                evidence={
+                    "source_hash_before": source_before_hash,
+                    "source_hash_after": source_after_hash,
+                    "isolated_hash_before": copy_before_hash,
+                    "isolated_hash_after": copy_after_hash,
+                },
             )
         )
 
