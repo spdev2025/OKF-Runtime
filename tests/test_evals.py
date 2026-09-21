@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import unittest
 from pathlib import Path
 from okf_runtime.evals.adapters.subprocess import SubprocessAdapterError, invoke_subprocess
@@ -9,7 +10,7 @@ from okf_runtime.evals.cases import default_cases_path, load_cases, validate_cas
 from okf_runtime.evals.config import EvalConfig
 from okf_runtime.evals.redaction import redact_value
 from okf_runtime.evals.reporters.langfuse import LangfuseReporter
-from okf_runtime.evals.runner import _invoke_with_timeout, run_cases
+from okf_runtime.evals.runner import _case_request, _invoke_with_timeout, run_cases
 from okf_runtime.evals.schema import PROTOCOL_VERSION, SubjectRequest, SubjectResponse
 from okf_runtime.evals.scoring import score_case
 
@@ -97,6 +98,11 @@ class EvalRunnerTests(unittest.TestCase):
         self.assertEqual(by_id[error_case.id].status, "error")
         self.assertEqual(by_id[error_case.id].gate_status, "ok")
 
+    def test_external_subject_request_does_not_expose_plan(self) -> None:
+        cases = load_cases(default_cases_path(REPO_ROOT))
+        request = _case_request(cases[0], REPO_ROOT / cases[0].fixture)
+        self.assertNotIn("plan", request.metadata)
+
     def test_subject_exception_isolated(self) -> None:
         cases = load_cases(default_cases_path(REPO_ROOT))
 
@@ -133,7 +139,7 @@ class EvalAdapterTests(unittest.TestCase):
             context={"bundle_root": str((REPO_ROOT / case.fixture).resolve())},
             metadata={"plan": case.plan, "timeout_seconds": 30},
         )
-        command = ["python3", "-B", str(REPO_ROOT / "scripts" / "eval_reference_subject.py")]
+        command = [sys.executable, "-B", str(REPO_ROOT / "scripts" / "eval_reference_subject.py")]
         response = invoke_subprocess(command, request, timeout_seconds=30)
         self.assertEqual(response.status, "ok")
 
@@ -146,7 +152,7 @@ class EvalAdapterTests(unittest.TestCase):
             metadata={"timeout_seconds": 5},
         )
         with self.assertRaises(SubprocessAdapterError):
-            invoke_subprocess(["python3", "-c", "print('not-json')"], request, timeout_seconds=5)
+            invoke_subprocess([sys.executable, "-c", "print('not-json')"], request, timeout_seconds=5)
 
 
 class EvalLangfuseTests(unittest.TestCase):
