@@ -69,9 +69,13 @@ def _execute_operation(root: Path, operation: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"Unknown operation type: {op_type}")
 
 
-def run_reference_subject(request: SubjectRequest) -> SubjectResponse:
+def run_reference_subject(
+    request: SubjectRequest,
+    *,
+    plan: dict[str, Any] | None = None,
+) -> SubjectResponse:
     root = Path(str(request.context.get("bundle_root", ".")))
-    plan = dict(request.metadata.get("plan") or {})
+    plan = dict(plan or {})
     events: list[dict[str, Any]] = []
     structured: dict[str, Any] = {}
     status: str = "ok"
